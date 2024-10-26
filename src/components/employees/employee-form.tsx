@@ -44,10 +44,9 @@ export default function EmployeeForm({ initialData }: Props) {
   const {
     register,
     handleSubmit,
-    formState: { errors, isSubmitting },
+    formState: { errors },
     setValue,
-    watch,
-    reset
+    watch
   } = useForm<EmployeeFormData>({
     resolver: zodResolver(employeeSchema),
     defaultValues: initialData ? {
@@ -123,7 +122,7 @@ export default function EmployeeForm({ initialData }: Props) {
     fetchDepartments()
   }, [selectedCompanyId, toast])
 
-// 初期データがある場合の会社IDと部署の設定
+// 初期データがあ���場合の会社IDと部署の設定
 useEffect(() => {
   if (initialData) {
     setSelectedCompanyId(initialData.company_id)
@@ -131,6 +130,23 @@ useEffect(() => {
     setValue('department_id', initialData.department_id || 'none')
   }
 }, [initialData, setValue])
+
+// エラーハンドリングの型定義
+interface SupabaseError {
+  code: string;
+  message: string;
+  details?: string;
+}
+
+// Supabaseのupdateとinsert操作の型定義
+type EmployeeUpdateData = {
+  first_name: string;
+  last_name: string;
+  email: string;
+  position: string;
+  company_id: string;
+  department_id: string; // nullを削除
+};
 
 // 会社が変更された時に、その会社の部署一覧を取得
 const handleCompanyChange = (value: string) => {
@@ -182,7 +198,7 @@ const handleCompanyChange = (value: string) => {
       console.log('Saving employee data:', employeeData) // デバッグ用
 
       if (initialData) {
-        const { error } = await supabase
+        const { error: updateError } = await supabase
           .from('employees')
           .update({
             first_name: data.first_name,
@@ -191,12 +207,12 @@ const handleCompanyChange = (value: string) => {
             position: data.position,
             company_id: data.company_id,
             department_id: data.department_id === 'none' ? null : data.department_id
-          } as any) // 一時的な型キャストで対応
+          } satisfies EmployeeUpdateData)
           .eq('id', initialData.id)
 
-        if (error) {
-          console.error('Update error:', error) // デバッグ用
-          throw error
+        if (updateError) {
+          console.error('Update error:', updateError) // デバッグ用
+          throw updateError
         }
 
         toast({
@@ -215,7 +231,7 @@ const handleCompanyChange = (value: string) => {
 
         setSuccessMessage("従業員情報を更新しました")
       } else {
-        const { error } = await supabase
+        const { error: insertError } = await supabase
           .from('employees')
           .insert([{
             first_name: data.first_name,
@@ -223,12 +239,12 @@ const handleCompanyChange = (value: string) => {
             email: data.email,
             position: data.position,
             company_id: data.company_id,
-            department_id: data.department_id === 'none' ? null : data.department_id
-          }] as any) // 一時的な型キャストで対応
+            department_id: data.department_id === 'none' ? '' : data.department_id // nullの代わりに空文字を使用
+          } satisfies EmployeeUpdateData])
 
-        if (error) {
-          console.error('Insert error:', error) // デバッグ用
-          throw error
+        if (insertError) {
+          console.error('Insert error:', insertError) // デバッグ用
+          throw insertError
         }
 
         toast({
@@ -252,11 +268,16 @@ const handleCompanyChange = (value: string) => {
         router.push('/employees')
         router.refresh()
       }, 3000)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error saving employee:', error)
-      const errorMessage = error.code === '23505' 
-        ? 'このメールアドレスは既に登録されています'
-        : '保存に失敗しました'
+      let errorMessage = '保存に失敗しました'
+      
+      if (error && typeof error === 'object' && 'code' in error) {
+        const supabaseError = error as SupabaseError
+        if (supabaseError.code === '23505') {
+          errorMessage = 'このメールアドレスは既に登録されています'
+        }
+      }
       
       setApiError(errorMessage)
       toast({
